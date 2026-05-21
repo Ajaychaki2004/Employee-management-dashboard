@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../api/axios";
 
@@ -14,6 +14,11 @@ export default function EmployeesPage() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
   const [deleteModal, setDeleteModal] = useState({
     open: false,
     employeeId: null,
@@ -62,6 +67,32 @@ export default function EmployeesPage() {
     setSelectedEmployee(employee);
     scrollToForm();
   };
+
+  const handleFilterChange = (setter, value) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((emp) => {
+      const matchesSearch =
+        (emp.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (emp.email || "").toLowerCase().includes(search.toLowerCase());
+
+      const matchesDepartment = departmentFilter === "" || emp.department === departmentFilter;
+      const matchesStatus = statusFilter === "" || emp.status === statusFilter;
+
+      return matchesSearch && matchesDepartment && matchesStatus;
+    });
+  }, [departmentFilter, employees, search, statusFilter]);
+
+  const departments = useMemo(() => {
+    return [...new Set(employees.map((emp) => emp.department).filter(Boolean))];
+  }, [employees]);
+
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedEmployees = filteredEmployees.slice(startIndex, startIndex + itemsPerPage);
 
   // Add Employee
   const addEmployee = async (data) => {
@@ -120,6 +151,11 @@ export default function EmployeesPage() {
     try {
       await API.delete(`/employees/${deleteModal.employeeId}`);
       setEmployees((prev) => prev.filter((emp) => emp._id !== deleteModal.employeeId));
+
+      // Reset page if deleting the last item on a page
+      if (paginatedEmployees.length === 1 && currentPage > 1) {
+        setCurrentPage((prev) => Math.max(prev - 1, 1));
+      }
     } catch (error) {
       console.error("Failed to delete employee:", error);
     } finally {
@@ -152,19 +188,7 @@ export default function EmployeesPage() {
             </div>
             
             {/* Quick action button to skip over to management form */}
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedEmployee(null);
-                scrollToForm();
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 transition"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Add New Employee
-            </button>
+            
           </div>
 
           {/* Employee management form */}
@@ -178,6 +202,44 @@ export default function EmployeesPage() {
 
           {/* Master Employee Table Shell */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            {/* Search + filters */}
+            <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="w-full md:max-w-md relative">
+                <input
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={search}
+                  onChange={(e) => handleFilterChange(setSearch, e.target.value)}
+                  className="w-full rounded-xl border-0 py-2.5 pl-4 pr-4 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-purple-600 sm:text-sm bg-white transition"
+                />
+              </div>
+
+              <div className="flex flex-wrap w-full md:w-auto items-center gap-3 justify-end">
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => handleFilterChange(setDepartmentFilter, e.target.value)}
+                  className="rounded-xl border-0 py-2.5 pl-3 pr-8 text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-purple-600 sm:text-sm bg-white cursor-pointer transition"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={statusFilter}
+                  onChange={(e) => handleFilterChange(setStatusFilter, e.target.value)}
+                  className="rounded-xl border-0 py-2.5 pl-3 pr-8 text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-purple-600 sm:text-sm bg-white cursor-pointer transition"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+
             {loading ? (
               /* Premium Pulse Wireframe Loader */
               <div className="p-8 space-y-4 animate-pulse">
@@ -186,13 +248,61 @@ export default function EmployeesPage() {
                 <div className="h-12 bg-slate-100 rounded-lg w-full" />
                 <div className="h-12 bg-slate-100 rounded-lg w-full" />
               </div>
+            ) : filteredEmployees.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <p className="text-slate-500 font-medium text-lg">No matching records found</p>
+                <p className="text-slate-400 text-sm mt-1">Try adjusting your search or filters.</p>
+              </div>
             ) : (
               /* Mounting your custom table component with props */
-              <EmployeeTable
-                employees={employees}
-                onEdit={handleEditEmployee}
-                onDelete={requestDeleteEmployee}
-              />
+              <div className="divide-y divide-slate-100">
+                <EmployeeTable
+                  employees={paginatedEmployees}
+                  onEdit={handleEditEmployee}
+                  onDelete={requestDeleteEmployee}
+                />
+
+                {totalPages > 1 && (
+                  <div className="p-4 bg-white flex items-center justify-between border-t border-slate-100 px-6">
+                    <span className="text-sm text-slate-500">
+                      Showing page <span className="font-semibold text-slate-700">{currentPage}</span> of{" "}
+                      <span className="font-semibold text-slate-700">{totalPages}</span>
+                    </span>
+                    <div className="flex gap-1.5">
+                      <button
+                        disabled={currentPage === 1}
+                        onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition"
+                      >
+                        Previous
+                      </button>
+                      {[...Array(totalPages)].map((_, index) => {
+                        const pageNum = index + 1;
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition hidden sm:inline-block ${
+                              currentPage === pageNum
+                                ? "bg-purple-600 text-white shadow-sm"
+                                : "border border-slate-200 text-slate-600 bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      <button
+                        disabled={currentPage === totalPages}
+                        onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
